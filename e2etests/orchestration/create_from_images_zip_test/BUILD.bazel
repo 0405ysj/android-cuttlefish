@@ -20,7 +20,7 @@ go_test(
     data = [
         "//orchestration/artifacts:cvd_host_package",
         "//orchestration/artifacts:images_zip",
-        "@images//docker:orchestration_image_tar",
+        "@images//docker:orchestration_image_with_local_source_tar",
     ],
     deps = [
         "//orchestration/common",

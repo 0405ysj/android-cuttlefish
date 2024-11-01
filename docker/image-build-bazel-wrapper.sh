@@ -38,12 +38,16 @@ fi
 # --- end runfiles.bash initialization ---
 
 usage() {
-  echo "usage: $0 -o /path/to/image.tar"
+  echo "usage: $0 -o <output> [-b <build_option>]"
+  echo "  -o: path for tar format output"
+  echo "  -b: build option of docker image (default local-source)"
+  echo "      local-source: build host packages from the local source"
+  echo "      apt-install : download and install host packages from apt"
 }
 
 output=
-
-while getopts ":ho:" opt; do
+build_option=local-source
+while getopts ":ho:b:" opt; do
   case "${opt}" in
     h)
       usage
@@ -51,6 +55,9 @@ while getopts ":ho:" opt; do
       ;;
     o)
       output="${OPTARG}"
+      ;;
+    b)
+      build_option="${OPTARG}"
       ;;
     \?)
       echo "Invalid option: ${OPTARG}" >&2
@@ -84,6 +91,6 @@ function remove_image() {
 trap remove_image EXIT
 
 # Build docker image
-${repo_root_dir}/docker/image-builder.sh "${name}"
+${repo_root_dir}/docker/image-builder.sh -t "${name}" -b "${build_option}"
 
 docker save --output ${output} ${name} 

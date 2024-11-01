@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/workflows/artifacts.yaml'
       - 'tools/buildimage/**'
+      - 'docker/**'
   push:
     branches:
       - main
@@ -51,7 +52,7 @@ jobs:
       with:
         name: image_gce_debian11_amd64
         path: image.tar.gz
-  export-docker-image-x86_64:
+  export-docker-image-x86_64-local-source:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout repository
@@ -59,21 +60,43 @@ jobs:
     - name: Get docker image name
       run: |
         short_sha=$(echo ${{ github.sha }} | cut -c1-8)
-        echo "x86_64_image_path=orchestration-image-x86_64-${short_sha}.tar" >> $GITHUB_ENV
+        echo "x86_64_local_source_image_path=orchestration-image-x86_64-local-source-${short_sha}.tar" >> $GITHUB_ENV
     - name: Install bazel
       run: sudo bash tools/buildutils/installbazel.sh
     - name: bazel version
       run: bazel version
     - name: Build docker image
-      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_tar
+      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_with_local_source_tar
     - name: Set filename of docker image
-      run: mv bazel-bin/docker/orchestration-image.tar ${{ env.x86_64_image_path }}
+      run: mv bazel-bin/docker/orchestration-image-local-source.tar ${{ env.x86_64_local_source_image_path }}
     - name: Publish docker image
       uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # aka v4.0.0
       with:
-        name: docker-image-x86_64
-        path: ${{ env.x86_64_image_path }}
-  export-docker-image-arm64:
+        name: docker-image-x86_64-local-source
+        path: ${{ env.x86_64_local_source_image_path }}
+  export-docker-image-x86_64-apt-install:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675 # aka v2
+    - name: Get docker image name
+      run: |
+        short_sha=$(echo ${{ github.sha }} | cut -c1-8)
+        echo "x86_64_apt_install_image_path=orchestration-image-x86_64-apt-install-${short_sha}.tar" >> $GITHUB_ENV
+    - name: Install bazel
+      run: sudo bash tools/buildutils/installbazel.sh
+    - name: bazel version
+      run: bazel version
+    - name: Build docker image
+      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_with_apt_install_tar
+    - name: Set filename of docker image
+      run: mv bazel-bin/docker/orchestration-image-apt-install.tar ${{ env.x86_64_apt_install_image_path }}
+    - name: Publish docker image
+      uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # aka v4.0.0
+      with:
+        name: docker-image-x86_64-apt-install
+        path: ${{ env.x86_64_apt_install_image_path }}
+  export-docker-image-arm64-local-source:
     runs-on: arm-ubuntu-arm-22.04-4core
     steps:
     - name: Checkout repository
@@ -81,17 +104,39 @@ jobs:
     - name: Get docker image name
       run: |
         short_sha=$(echo ${{ github.sha }} | cut -c1-8)
-        echo "arm64_image_path=orchestration-image-arm64-${short_sha}.tar" >> $GITHUB_ENV
+        echo "arm64_local_source_image_path=orchestration-image-arm64-local-source-${short_sha}.tar" >> $GITHUB_ENV
     - name: Install bazel
       run: sudo bash tools/buildutils/installbazel.sh
     - name: bazel version
       run: bazel version
     - name: Build docker image
-      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_tar
+      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_with_local_source_tar
     - name: Set filename of docker image
-      run: mv bazel-bin/docker/orchestration-image.tar ${{ env.arm64_image_path }}
+      run: mv bazel-bin/docker/orchestration-image-local-source.tar ${{ env.arm64_local_source_image_path }}
     - name: Publish docker image
       uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # aka v4.0.0
       with:
-        name: docker-image-arm64
-        path: ${{ env.arm64_image_path }}
+        name: docker-image-arm64-local-source
+        path: ${{ env.arm64_local_source_image_path }}
+  export-docker-image-arm64-apt-install:
+    runs-on: arm-ubuntu-arm-22.04-4core
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675 # aka v2
+    - name: Get docker image name
+      run: |
+        short_sha=$(echo ${{ github.sha }} | cut -c1-8)
+        echo "arm64_apt_install_image_path=orchestration-image-arm64-apt-install-${short_sha}.tar" >> $GITHUB_ENV
+    - name: Install bazel
+      run: sudo bash tools/buildutils/installbazel.sh
+    - name: bazel version
+      run: bazel version
+    - name: Build docker image
+      run: bazel build --sandbox_writable_path=$HOME //docker:orchestration_image_with_apt_install_tar
+    - name: Set filename of docker image
+      run: mv bazel-bin/docker/orchestration-image-apt-install.tar ${{ env.arm64_apt_install_image_path }}
+    - name: Publish docker image
+      uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # aka v4.0.0
+      with:
+        name: docker-image-arm64-apt-install
+        path: ${{ env.arm64_apt_install_image_path }}

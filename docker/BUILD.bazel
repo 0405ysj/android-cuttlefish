@@ -13,9 +13,17 @@
 # limitations under the License.
 
 genrule(
-    name = "orchestration_image_tar",
-    outs = ["orchestration-image.tar"],
-    cmd = "$(location :orchestration_image_builder) -o $@",
+    name = "orchestration_image_with_local_source_tar",
+    outs = ["orchestration-image-local-source.tar"],
+    cmd = "$(location :orchestration_image_builder) -o $@ -b local-source",
+    tools = [":orchestration_image_builder"],
+    visibility = ["//visibility:public"],
+)
+
+genrule(
+    name = "orchestration_image_with_apt_install_tar",
+    outs = ["orchestration-image-apt-install.tar"],
+    cmd = "$(location :orchestration_image_builder) -o $@ -b apt-install",
     tools = [":orchestration_image_builder"],
     visibility = ["//visibility:public"],
 )
