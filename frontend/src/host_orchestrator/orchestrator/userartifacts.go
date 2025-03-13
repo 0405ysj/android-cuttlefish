@@ -16,6 +16,7 @@ package orchestrator
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -25,7 +26,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/gofrs/flock"
 	apiv1 "github.com/google/android-cuttlefish/frontend/src/host_orchestrator/api/v1"
 	hoexec "github.com/google/android-cuttlefish/frontend/src/host_orchestrator/orchestrator/exec"
 	"github.com/google/android-cuttlefish/frontend/src/liboperator/operator"
@@ -50,6 +53,10 @@ type UserArtifactsManager interface {
 	UserArtifactsDirResolver
 	// Creates a new directory for uploading user artifacts in the future.
 	NewDir(dir string) (*apiv1.UploadDirectory, error)
+	// Acquire lock on the directory for preventing races.
+	LockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error)
+	// Release lock on the directory locked for preventing races.
+	UnlockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error)
 	// List existing directories
 	ListDirs() (*apiv1.ListUploadDirectoriesResponse, error)
 	// Update artifact with the passed chunk.
@@ -69,12 +76,15 @@ type UserArtifactsManagerOpts struct {
 // An implementation of the UserArtifactsManager interface.
 type UserArtifactsManagerImpl struct {
 	UserArtifactsManagerOpts
+
+	locks map[string]*flock.Flock
 }
 
 // Creates a new instance of UserArtifactsManagerImpl.
 func NewUserArtifactsManagerImpl(opts UserArtifactsManagerOpts) *UserArtifactsManagerImpl {
 	return &UserArtifactsManagerImpl{
 		UserArtifactsManagerOpts: opts,
+		locks: make(map[string]*flock.Flock),
 	}
 }
 
@@ -88,6 +98,60 @@ func (m *UserArtifactsManagerImpl) NewDir(dir string) (*apiv1.UploadDirectory, e
 	}
 	log.Println("created new user artifact directory", dir)
 	return &apiv1.UploadDirectory{Name: filepath.Base(dir)}, nil
+}
+
+func (m *UserArtifactsManagerImpl) LockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	dirPath := filepath.Join(m.RootDir, dir)
+	lockPath := filepath.Join(dirPath, "upload.lock")
+	m.locks[dir] = flock.New(lockPath)
+	locked, err := m.locks[dir].TryLockContext(ctx, time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed acquiring lock at %q: %w", lockPath, err)
+	}
+	if !locked {
+		return nil, fmt.Errorf("failed acquiring lock at %q", lockPath)
+	}
+
+	completedPath := filepath.Join(dirPath, "COMPLETED")
+	exists, err := fileExist(completedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existence of file at %q: %w", completedPath, err)
+	}
+	if exists {
+		return &apiv1.LockUploadDirectoryResponse{UploadCompleted: true}, nil
+	}
+
+	files, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %q: %w", dirPath, err)
+	}
+	for _, file := range files {
+		if file.Name() == "upload.lock" {
+			continue
+		}
+		path := filepath.Join(dirPath, file.Name())
+		if err := os.Remove(path); err != nil {
+			return nil, fmt.Errorf("failed to remove file %q: %w", path, err)
+		}
+	}
+	return &apiv1.LockUploadDirectoryResponse{UploadCompleted: false}, nil
+}
+
+func (m *UserArtifactsManagerImpl) UnlockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error) {
+	if m.locks[dir] == nil {
+		return nil, fmt.Errorf("lock at %q wasn't defined", dir)
+	}
+	if !m.locks[dir].Locked() {
+		return nil, fmt.Errorf("lock at %q was already released", dir)
+	}
+	if err := createUAFile(filepath.Join(m.RootDir, dir, "COMPLETED"), m.Owner); err != nil {
+		return nil, fmt.Errorf("failed to create COMPLETED file at %q: %w", dir, err)
+	}
+	m.locks[dir].Unlock()
+	m.locks[dir] = nil
+	return &apiv1.LockUploadDirectoryResponse{UploadCompleted: true}, nil
 }
 
 func (m *UserArtifactsManagerImpl) ListDirs() (*apiv1.ListUploadDirectoriesResponse, error) {

@@ -193,6 +193,14 @@ func (testUAM) NewDir(dir string) (*apiv1.UploadDirectory, error) {
 	return &apiv1.UploadDirectory{Name: dir}, nil
 }
 
+func (testUAM) LockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error) {
+	return &apiv1.LockUploadDirectoryResponse{UploadCompleted: false}, nil
+}
+
+func (testUAM) UnlockDir(dir string) (*apiv1.LockUploadDirectoryResponse, error) {
+	return &apiv1.LockUploadDirectoryResponse{UploadCompleted: true}, nil
+}
+
 func (testUAM) ListDirs() (*apiv1.ListUploadDirectoriesResponse, error) {
 	return &apiv1.ListUploadDirectoriesResponse{}, nil
 }
@@ -227,6 +235,36 @@ func TestCreateUploadDirectoryWithoutDirNameIsHandled(t *testing.T) {
 func TestCreateUploadDirectoryWithDirNameIsHandled(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req, err := http.NewRequest("POST", "/userartifacts/foo", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := Controller{UserArtifactsManager: &testUAM{}}
+
+	makeRequest(rr, req, &controller)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("request was not handled. This failure implies an API breaking change.")
+	}
+}
+
+func TestLockUploadDirectoryIsHandled(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req, err := http.NewRequest("POST", "/userartifacts/foo/:lock", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := Controller{UserArtifactsManager: &testUAM{}}
+
+	makeRequest(rr, req, &controller)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("request was not handled. This failure implies an API breaking change.")
+	}
+}
+
+func TestUnlockUploadDirectoryIsHandled(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req, err := http.NewRequest("POST", "/userartifacts/foo/:unlock", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
