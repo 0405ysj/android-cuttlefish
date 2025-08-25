@@ -45,6 +45,7 @@ func NewGceHelper(project, zone string) (*GceHelper, error) {
 }
 
 func (h *GceHelper) CreateDisk(sourceImageProject, sourceImage, name string) (*compute.Disk, error) {
+	log.Printf("creating disk %q...", name)
 	payload := &compute.Disk{
 		Name:        name,
 		SourceImage: fmt.Sprintf("projects/%s/global/images/%s", sourceImageProject, sourceImage),
@@ -56,18 +57,25 @@ func (h *GceHelper) CreateDisk(sourceImageProject, sourceImage, name string) (*c
 	if err := h.waitForOperation(op); err != nil {
 		return nil, err
 	}
+	log.Printf("disk created: %q", name)
 	return payload, nil
 }
 
 func (h *GceHelper) DeleteDisk(name string) error {
+	log.Printf("deleting disk %q...", name)
 	op, err := h.Service.Disks.Delete(h.Project, h.Zone, name).Do()
 	if err != nil {
 		return err
 	}
-	return h.waitForOperation(op)
+	if err := h.waitForOperation(op); err != nil {
+		return err
+	}
+	log.Printf("disk deleted: %q", name)
+	return nil
 }
 
 func (h *GceHelper) AttachDisk(ins, disk string) error {
+	log.Printf("attaching disk %q from instance %q...", disk, ins)
 	attachedDisk := &compute.AttachedDisk{
 		Source: fmt.Sprintf("projects/%s/zones/%s/disks/%s", h.Project, h.Zone, disk),
 	}
@@ -75,18 +83,28 @@ func (h *GceHelper) AttachDisk(ins, disk string) error {
 	if err != nil {
 		return err
 	}
-	return h.waitForOperation(op)
+	if err := h.waitForOperation(op); err != nil {
+		return err
+	}
+	log.Printf("disk attached")
+	return nil
 }
 
 func (h *GceHelper) DetachDisk(ins, disk string) error {
+	log.Printf("detaching disk %q from instance %q...", disk, ins)
 	op, err := h.Service.Instances.DetachDisk(h.Project, h.Zone, ins, disk).Do()
 	if err != nil {
 		return err
 	}
-	return h.waitForOperation(op)
+	if err := h.waitForOperation(op); err != nil {
+		return err
+	}
+	log.Printf("disk detached")
+	return nil
 }
 
 func (h *GceHelper) CreateInstance(name string) (*compute.Instance, error) {
+	log.Printf("creating instance %q...", name)
 	payload := &compute.Instance{
 		Name:           name,
 		MachineType:    fmt.Sprintf("zones/%s/machineTypes/%s", h.Zone, "n1-standard-16"),
@@ -119,26 +137,38 @@ func (h *GceHelper) CreateInstance(name string) (*compute.Instance, error) {
 	if err := h.waitForOperation(op); err != nil {
 		return nil, err
 	}
+	log.Printf("instance created: %q", name)
 	return payload, nil
 }
 
 func (h *GceHelper) StopInstance(name string) error {
+	log.Printf("stopping instance %q...", name)
 	op, err := h.Service.Instances.Stop(h.Project, h.Zone, name).Do()
 	if err != nil {
 		return err
 	}
-	return h.waitForOperation(op)
+	if err := h.waitForOperation(op); err != nil {
+		return err
+	}
+	log.Printf("instance stopped: %q", name)
+	return nil
 }
 
 func (h *GceHelper) DeleteInstance(name string) error {
+	log.Printf("deleting instance %q...", name)
 	op, err := h.Service.Instances.Delete(h.Project, h.Zone, name).Do()
 	if err != nil {
 		return err
 	}
-	return h.waitForOperation(op)
+	if err := h.waitForOperation(op); err != nil {
+		return err
+	}
+	log.Printf("instance deleted: %q", name)
+	return nil
 }
 
 func (h *GceHelper) CreateImage(ins, disk, name string) error {
+	log.Printf("creating image %q...", name)
 	payload := &compute.Image{
 		Name:       name,
 		SourceDisk: fmt.Sprintf("projects/%s/zones/%s/disks/%s", h.Project, h.Zone, disk),
@@ -148,7 +178,11 @@ func (h *GceHelper) CreateImage(ins, disk, name string) error {
 	if err != nil {
 		return err
 	}
-	return h.waitForGlobalOperation(op)
+	if err := h.waitForGlobalOperation(op); err != nil {
+		return err
+	}
+	log.Printf("image created: %q", name)
+	return nil
 }
 
 func (h *GceHelper) waitForOperation(op *compute.Operation) error {

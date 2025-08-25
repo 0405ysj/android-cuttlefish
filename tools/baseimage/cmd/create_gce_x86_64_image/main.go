@@ -47,45 +47,29 @@ func createImageMain(project, zone string) error {
 	insName := outImageName
 	attachedDiskName := fmt.Sprintf("%s-attached-disk", insName)
 	defer func() {
-		// DetachDisk
-		log.Printf("cleanup: detaching disk %q from instance %q...", attachedDiskName, insName)
+		log.Println("cleanup resources...")
 		if err := h.DetachDisk(insName, attachedDiskName); err != nil {
-			log.Printf("cleanup: error detaching disk: %v", err)
-		} else {
-			log.Println("cleanup: disk detached")
+			log.Printf("error detaching disk: %v", err)
 		}
-		// Delete Instance
-		log.Printf("cleanup: deleting instance %q...", insName)
 		if err := h.DeleteInstance(insName); err != nil {
-			log.Printf("cleanup: error deleting instance: %v", err)
-		} else {
-			log.Println("cleanup: instance deleted")
+			log.Printf("error deleting instance: %v", err)
 		}
-		// Delete Disk
-		log.Printf("cleanup: deleting disk %q...", attachedDiskName)
 		if err := h.DeleteDisk(attachedDiskName); err != nil {
-			log.Printf("cleanup: error deleting disk: %v", err)
-		} else {
-			log.Println("cleanup: disk deleted")
+			log.Printf("error deleting disk: %v", err)
 		}
+		log.Println("completed cleanup")
 	}()
-	log.Println("creating disk...")
 	disk, err := h.CreateDisk(debianSourceImageProject, debianSourceImage, attachedDiskName)
 	if err != nil {
 		return fmt.Errorf("failed to create disk: %w", err)
 	}
-	log.Printf("disk created: %q", attachedDiskName)
-	log.Println("creating instance...")
 	ins, err := h.CreateInstance(insName)
 	if err != nil {
 		return fmt.Errorf("failed to create instance: %w", err)
 	}
-	log.Printf("instance created: %q", insName)
-	log.Println("attaching disk...")
 	if err := h.AttachDisk(insName, attachedDiskName); err != nil {
 		log.Fatalf("failed to attach disk %q to instance %q: %v", disk.Name, ins.Name, err)
 	}
-	log.Println("disk attached")
 
 	if err := gce.WaitForInstance(project, zone, insName); err != nil {
 		return fmt.Errorf("waiting for instance error: %v", err)
@@ -125,7 +109,6 @@ func createImageMain(project, zone string) error {
 	if err := gce.WaitForInstance(project, zone, insName); err != nil {
 		return fmt.Errorf("waiting for instance error: %v", err)
 	}
-	log.Printf("stopping instance %q...", insName)
 	if err := h.StopInstance(insName); err != nil {
 		return fmt.Errorf("error stopping instance: %v", err)
 	}
@@ -148,7 +131,6 @@ func main() {
 	if err := createImageMain(*project, *zone); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("image %q was created successfully", outImageName)
 	fmt.Printf(`Copy the image somewhere else:
 gcloud compute images create \
   --source-image-project=%s \
