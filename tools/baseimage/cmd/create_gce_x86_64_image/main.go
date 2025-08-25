@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/android-cuttlefish/tools/baseimage/pkg/gce"
 	"github.com/google/android-cuttlefish/tools/baseimage/pkg/gce/scripts"
+	"github.com/google/uuid"
 )
 
 // Cuttlefish base images are based on debian images.
@@ -44,7 +45,7 @@ func createImageMain(project, zone string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create GCE helper: %w", err)
 	}
-	insName := outImageName
+	insName := fmt.Sprintf("cf-%s", uuid.NewString())
 	attachedDiskName := fmt.Sprintf("%s-attached-disk", insName)
 	disk, err := h.CreateDisk(debianSourceImageProject, debianSourceImage, attachedDiskName)
 	if err != nil {
