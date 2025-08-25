@@ -46,30 +46,32 @@ func createImageMain(project, zone string) error {
 	}
 	insName := outImageName
 	attachedDiskName := fmt.Sprintf("%s-attached-disk", insName)
-	defer func() {
-		log.Println("cleanup resources...")
-		if err := h.DetachDisk(insName, attachedDiskName); err != nil {
-			log.Printf("error detaching disk: %v", err)
-		}
-		if err := h.DeleteInstance(insName); err != nil {
-			log.Printf("error deleting instance: %v", err)
-		}
-		if err := h.DeleteDisk(attachedDiskName); err != nil {
-			log.Printf("error deleting disk: %v", err)
-		}
-		log.Println("completed cleanup")
-	}()
 	disk, err := h.CreateDisk(debianSourceImageProject, debianSourceImage, attachedDiskName)
 	if err != nil {
 		return fmt.Errorf("failed to create disk: %w", err)
 	}
+	defer func() {
+		if err := h.DeleteDisk(attachedDiskName); err != nil {
+			log.Printf("error deleting disk: %v", err)
+		}
+	}()
 	ins, err := h.CreateInstance(insName)
 	if err != nil {
 		return fmt.Errorf("failed to create instance: %w", err)
 	}
+	defer func() {
+		if err := h.DeleteInstance(insName); err != nil {
+			log.Printf("error deleting instance: %v", err)
+		}
+	}()
 	if err := h.AttachDisk(insName, attachedDiskName); err != nil {
 		log.Fatalf("failed to attach disk %q to instance %q: %v", disk.Name, ins.Name, err)
 	}
+	defer func() {
+		if err := h.DetachDisk(insName, attachedDiskName); err != nil {
+			log.Printf("error detaching disk: %v", err)
+		}
+	}()
 
 	if err := gce.WaitForInstance(project, zone, insName); err != nil {
 		return fmt.Errorf("waiting for instance error: %v", err)
