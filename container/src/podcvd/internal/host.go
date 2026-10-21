@@ -603,15 +603,9 @@ func findAvailableCloneGroupName(innerGroupName string, groupNameIpAddrMap map[s
 func CreateClonedCuttlefishHost(ccm CuttlefishContainerManager, image, innerGroupName, srcBaseDir string, mountSpecs []string) (string, error) {
 	attemptID := uuid.New().String()
 	podcvdBaseDir := filepath.Join("/var/tmp/podcvd", strconv.Itoa(os.Getuid()), attemptID)
-	if err := os.MkdirAll(podcvdBaseDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create podcvd base dir: %w", err)
-	}
-	if err := ccm.CopyInUserNamespace(context.Background(), filepath.Join(srcBaseDir, "home"), filepath.Join(podcvdBaseDir, "home")); err != nil {
-		return "", fmt.Errorf("failed to copy podcvd home dir: %w", err)
-	}
-	cloneMountSpecs := []string{fmt.Sprintf("%s:/podcvd_base:rw", podcvdBaseDir)}
+	var cloneMountSpecs []string
 	for _, spec := range mountSpecs {
-		if strings.Contains(spec, ":/host_out:") || strings.Contains(spec, ":/product_out:") {
+		if strings.Contains(spec, ":/host_out:") || strings.Contains(spec, ":/product_out:") || strings.Contains(spec, ":/podcvd_snapshot:") {
 			continue
 		}
 		if !strings.HasSuffix(spec, ":/podcvd_base:rw") {

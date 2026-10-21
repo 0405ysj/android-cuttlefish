@@ -341,7 +341,9 @@ func handleCloneExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) erro
 	}
 	image := cloneImageRepo + ":" + snapshotID
 	var cloneGroupName string
-	copyArgs := []string{"sh", "-c", "for d in host product; do [ -e /${d}_original ] || { cp -a /${d}_out /${d}_original.tmp && mv /${d}_original.tmp /${d}_original; } || exit 1; done"}
+	copyArgs := []string{"sh", "-c", "for d in host product; do [ -e /${d}_original ] || { cp -a /${d}_out /${d}_original.tmp && mv /${d}_original.tmp /${d}_original; } || exit 1; done" +
+		" && rm -rf /podcvd_base_original /podcvd_snapshot_original && cp -a /podcvd_base /podcvd_base_original" +
+		" && mkdir /podcvd_snapshot_original && cp -a /podcvd_snapshot/" + snapshotID + " /podcvd_snapshot_original/" + snapshotID}
 	cloneErr := ccm.ExecOnContainer(context.Background(), containerName, copyArgs, nil, os.Stderr, os.Stderr)
 	if cloneErr == nil {
 		cloneErr = ccm.CommitContainer(context.Background(), containerName, image)
@@ -351,7 +353,10 @@ func handleCloneExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) erro
 		cloneGroupName, cloneErr = CreateClonedCuttlefishHost(ccm, image, innerGroupName, podcvdBaseDir, mountSpecs)
 	}
 	if cloneErr == nil {
-		linkArgs := []string{"sh", "-c", "rm -rf /host_out /product_out && ln -s /host_original /host_out && ln -s /product_original /product_out"}
+		linkArgs := []string{"sh", "-c", "! grep -qE ' /(host_out|product_out|podcvd_base|podcvd_snapshot) ' /proc/mounts" +
+			" && rm -rf /host_out /product_out /podcvd_base /podcvd_snapshot" +
+			" && ln -s /host_original /host_out && ln -s /product_original /product_out" +
+			" && ln -s /podcvd_base_original /podcvd_base && ln -s /podcvd_snapshot_original /podcvd_snapshot"}
 		cloneErr = ccm.ExecOnContainer(context.Background(), ContainerName(cloneGroupName), linkArgs, nil, os.Stderr, os.Stderr)
 	}
 	hostSnapshotPath := filepath.Join(hostSnapshotsDir(), snapshotID)
