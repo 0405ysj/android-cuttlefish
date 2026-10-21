@@ -341,10 +341,18 @@ func handleCloneExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) erro
 	}
 	image := cloneImageRepo + ":" + snapshotID
 	var cloneGroupName string
-	cloneErr := ccm.CommitContainer(context.Background(), containerName, image)
+	copyArgs := []string{"sh", "-c", "for d in host product; do [ -e /${d}_original ] || { cp -a /${d}_out /${d}_original.tmp && mv /${d}_original.tmp /${d}_original; } || exit 1; done"}
+	cloneErr := ccm.ExecOnContainer(context.Background(), containerName, copyArgs, nil, os.Stderr, os.Stderr)
+	if cloneErr == nil {
+		cloneErr = ccm.CommitContainer(context.Background(), containerName, image)
+	}
 	if cloneErr == nil {
 		// Create the clone while the group is stopped, as it copies the group's home.
 		cloneGroupName, cloneErr = CreateClonedCuttlefishHost(ccm, image, innerGroupName, podcvdBaseDir, mountSpecs)
+	}
+	if cloneErr == nil {
+		linkArgs := []string{"sh", "-c", "rm -rf /host_out /product_out && ln -s /host_original /host_out && ln -s /product_original /product_out"}
+		cloneErr = ccm.ExecOnContainer(context.Background(), ContainerName(cloneGroupName), linkArgs, nil, os.Stderr, os.Stderr)
 	}
 	hostSnapshotPath := filepath.Join(hostSnapshotsDir(), snapshotID)
 	// Restart the source group even if cloning failed.

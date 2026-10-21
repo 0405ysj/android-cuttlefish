@@ -611,6 +611,9 @@ func CreateClonedCuttlefishHost(ccm CuttlefishContainerManager, image, innerGrou
 	}
 	cloneMountSpecs := []string{fmt.Sprintf("%s:/podcvd_base:rw", podcvdBaseDir)}
 	for _, spec := range mountSpecs {
+		if strings.Contains(spec, ":/host_out:") || strings.Contains(spec, ":/product_out:") {
+			continue
+		}
 		if !strings.HasSuffix(spec, ":/podcvd_base:rw") {
 			cloneMountSpecs = append(cloneMountSpecs, spec)
 		}
