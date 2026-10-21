@@ -53,7 +53,7 @@ func Main(args []string) error {
 		}
 	}
 	switch subcommand {
-	case "bugreport", "clone", "create", "display", "env", "logs", "monitor", "powerbtn", "powerwash", "remove", "restart", "resume", "screen_recording", "snapshot_take", "start", "status", "stop", "suspend":
+	case "bugreport", "clone", "create", "display", "env", "export", "logs", "monitor", "powerbtn", "powerwash", "remove", "restart", "resume", "screen_recording", "snapshot_take", "start", "status", "stop", "suspend":
 		if err := handleSubcommandsForSingleInstanceGroup(ccm, cvdArgs); err != nil {
 			return err
 		}
@@ -77,6 +77,8 @@ func Main(args []string) error {
 		if err := ExecFetchCmdOnDisposableHost(ccm, cvdArgs); err != nil {
 			return err
 		}
+	case "import":
+		return handleImportExecution(ccm, cvdArgs)
 	case "setup":
 		return setupPodcvd()
 	default:
@@ -162,7 +164,7 @@ func handleCreateOrStartExecution(ccm CuttlefishContainerManager, cvdArgs *CvdAr
 	if hasConfigFile {
 		cvdArgs.ReplaceFlagValueOnSubCommandArgs("base_directory", "/podcvd_base")
 	}
-	if cvdArgs.SubCommandArgs[0] == "start" {
+	if cvdArgs.SubCommandArgs[0] == "start" && !cvdArgs.snapshotPathInContainer {
 		if err := resolveSnapshotForRestore(cvdArgs, hostSnapshotsDir()); err != nil {
 			return err
 		}
@@ -314,70 +316,140 @@ func handleSnapshotTakeExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArg
 }
 
 func handleCloneExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) error {
+	mountSpecs, err := cuttlefishHostMountSpecs(ccm, cvdArgs.CommonArgs.GroupName)
+	if err != nil {
+		return err
+	}
+	image, err := prepareCloneImage(ccm, cvdArgs)
+	if err != nil {
+		return err
+	}
+	return runCloneImage(ccm, image, mountSpecs)
+}
+
+func handleExportExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) error {
+	output, exists := cvdArgs.GetStringFlagValueOnSubCommandArgs("output")
+	if !exists || output == "" {
+		return fmt.Errorf("--output is missing")
+	}
+	absOutput, err := filepath.Abs(output)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path for %q: %w", output, err)
+	}
+	image, err := prepareCloneImage(ccm, cvdArgs)
+	if err != nil {
+		return err
+	}
+	return ccm.SaveImage(context.Background(), image, absOutput)
+}
+
+func handleImportExecution(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) error {
+	input, exists := cvdArgs.GetStringFlagValueOnSubCommandArgs("input")
+	if !exists || input == "" {
+		return fmt.Errorf("--input is missing")
+	}
+	absInput, err := filepath.Abs(input)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path for %q: %w", input, err)
+	}
+	image, err := ccm.LoadImage(context.Background(), absInput)
+	if err != nil {
+		return err
+	}
+	cvdDataHome, err := cvdDataHome()
+	if err != nil {
+		return fmt.Errorf("failed to get cvd data home: %w", err)
+	}
+	if err := os.MkdirAll(cvdDataHome, 0755); err != nil {
+		return fmt.Errorf("failed to ensure directory at %q: %w", cvdDataHome, err)
+	}
+	cacheDir := hostCacheDir()
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return fmt.Errorf("failed to ensure cache directory at %q: %w", cacheDir, err)
+	}
+	mountSpecs := []string{
+		fmt.Sprintf("%s:/root/.local/share/cvd:ro", cvdDataHome),
+		fmt.Sprintf("%s:/var/tmp/cvd/0/cache:rw", cacheDir),
+		"/etc/cuttlefish-podcvd/cert.pem:/etc/cuttlefish-common/operator/cert/cert.pem:ro",
+		"/etc/cuttlefish-podcvd/key.pem:/etc/cuttlefish-common/operator/cert/key.pem:ro",
+	}
+	return runCloneImage(ccm, image, mountSpecs)
+}
+
+// prepareCloneImage snapshots the group into an image holding everything to restore it, and restarts the group.
+func prepareCloneImage(ccm CuttlefishContainerManager, cvdArgs *CvdArgs) (string, error) {
 	groupName := cvdArgs.CommonArgs.GroupName
 	innerGroupName := cvdArgs.CommonArgs.InnerGroupName
 	containerName := ContainerName(groupName)
-	mountSpecs, err := cuttlefishHostMountSpecs(ccm, groupName)
-	if err != nil {
-		return err
-	}
-	podcvdBaseDir, err := podcvdBaseDirForGroup(ccm, groupName)
-	if err != nil {
-		return err
-	}
 	snapshotID := uuid.New().String()
 	snapshotArgs := append([]string{"cvd"}, cvdArgs.SerializeCommonArgs()...)
 	snapshotArgs = append(snapshotArgs, "snapshot_take", "--auto_suspend", "--snapshot_path="+filepath.Join(containerSnapshotsDir, snapshotID))
 	if err := ccm.ExecOnContainer(context.Background(), containerName, snapshotArgs, nil, os.Stderr, os.Stderr); err != nil {
-		return fmt.Errorf("failed to take snapshot of group %q: %w", groupName, err)
+		return "", fmt.Errorf("failed to take snapshot of group %q: %w", groupName, err)
 	}
 	if err := disconnectAdb(ccm, groupName); err != nil {
-		return err
+		return "", err
 	}
 	stopArgs := append([]string{"cvd"}, cvdArgs.SerializeCommonArgs()...)
 	stopArgs = append(stopArgs, "stop")
 	if err := ccm.ExecOnContainer(context.Background(), containerName, stopArgs, nil, os.Stderr, os.Stderr); err != nil {
-		return fmt.Errorf("failed to stop group %q: %w", groupName, err)
+		return "", fmt.Errorf("failed to stop group %q: %w", groupName, err)
 	}
 	image := cloneImageRepo + ":" + snapshotID
-	var cloneGroupName string
 	copyArgs := []string{"sh", "-c", "for d in host product; do [ -e /${d}_original ] || { cp -a /${d}_out /${d}_original.tmp && mv /${d}_original.tmp /${d}_original; } || exit 1; done" +
 		" && rm -rf /podcvd_base_original /podcvd_snapshot_original && cp -a /podcvd_base /podcvd_base_original" +
 		" && mkdir /podcvd_snapshot_original && cp -a /podcvd_snapshot/" + snapshotID + " /podcvd_snapshot_original/" + snapshotID}
-	cloneErr := ccm.ExecOnContainer(context.Background(), containerName, copyArgs, nil, os.Stderr, os.Stderr)
-	if cloneErr == nil {
-		cloneErr = ccm.CommitContainer(context.Background(), containerName, image)
-	}
-	if cloneErr == nil {
-		// Create the clone while the group is stopped, as it copies the group's home.
-		cloneGroupName, cloneErr = CreateClonedCuttlefishHost(ccm, image, innerGroupName, podcvdBaseDir, mountSpecs)
-	}
-	if cloneErr == nil {
-		linkArgs := []string{"sh", "-c", "! grep -qE ' /(host_out|product_out|podcvd_base|podcvd_snapshot) ' /proc/mounts" +
-			" && rm -rf /host_out /product_out /podcvd_base /podcvd_snapshot" +
-			" && ln -s /host_original /host_out && ln -s /product_original /product_out" +
-			" && ln -s /podcvd_base_original /podcvd_base && ln -s /podcvd_snapshot_original /podcvd_snapshot"}
-		cloneErr = ccm.ExecOnContainer(context.Background(), ContainerName(cloneGroupName), linkArgs, nil, os.Stderr, os.Stderr)
+	err := ccm.ExecOnContainer(context.Background(), containerName, copyArgs, nil, os.Stderr, os.Stderr)
+	if err == nil {
+		err = ccm.CommitContainer(context.Background(), containerName, image,
+			fmt.Sprintf("LABEL %s=%s", labelExportInnerGroupName, innerGroupName),
+			fmt.Sprintf("LABEL %s=%s", labelExportSnapshotID, snapshotID))
 	}
 	hostSnapshotPath := filepath.Join(hostSnapshotsDir(), snapshotID)
-	// Restart the source group even if cloning failed.
-	if err := startGroupFromSnapshot(ccm, groupName, innerGroupName, hostSnapshotPath); err != nil {
-		return errors.Join(cloneErr, err)
+	// Restart the source group even if preparing the image failed.
+	if startErr := startGroupFromSnapshot(ccm, groupName, innerGroupName, hostSnapshotPath, false); startErr != nil {
+		return "", errors.Join(err, startErr)
 	}
-	if cloneErr != nil {
-		return cloneErr
+	if err != nil {
+		return "", err
 	}
-	return startGroupFromSnapshot(ccm, cloneGroupName, innerGroupName, hostSnapshotPath)
+	return image, nil
 }
 
-func startGroupFromSnapshot(ccm CuttlefishContainerManager, groupName, innerGroupName, hostSnapshotPath string) error {
-	cvdArgs, err := ParseCvdArgs([]string{"--group_name=" + groupName, "start", "--snapshot_path=" + hostSnapshotPath})
+// runCloneImage starts a new group from an image made by prepareCloneImage.
+func runCloneImage(ccm CuttlefishContainerManager, image string, mountSpecs []string) error {
+	labels, err := ccm.InspectImageLabels(context.Background(), image)
+	if err != nil {
+		return err
+	}
+	innerGroupName := labels[labelExportInnerGroupName]
+	snapshotID := labels[labelExportSnapshotID]
+	if innerGroupName == "" || snapshotID == "" {
+		return fmt.Errorf("image %q is not made by podcvd clone or export", image)
+	}
+	cloneGroupName, err := CreateClonedCuttlefishHost(ccm, image, innerGroupName, "", mountSpecs)
+	if err != nil {
+		return err
+	}
+	linkArgs := []string{"sh", "-c", "! grep -qE ' /(host_out|product_out|podcvd_base|podcvd_snapshot) ' /proc/mounts" +
+		" && rm -rf /host_out /product_out /podcvd_base /podcvd_snapshot" +
+		" && ln -s /host_original /host_out && ln -s /product_original /product_out" +
+		" && ln -s /podcvd_base_original /podcvd_base && ln -s /podcvd_snapshot_original /podcvd_snapshot"}
+	if err := ccm.ExecOnContainer(context.Background(), ContainerName(cloneGroupName), linkArgs, nil, os.Stderr, os.Stderr); err != nil {
+		return err
+	}
+	return startGroupFromSnapshot(ccm, cloneGroupName, innerGroupName, filepath.Join(containerSnapshotsDir, snapshotID), true)
+}
+
+func startGroupFromSnapshot(ccm CuttlefishContainerManager, groupName, innerGroupName, snapshotPath string, snapshotInContainer bool) error {
+	cvdArgs, err := ParseCvdArgs([]string{"--group_name=" + groupName, "start", "--snapshot_path=" + snapshotPath})
 	if err != nil {
 		return err
 	}
 	cvdArgs.CommonArgs.InnerGroupName = innerGroupName
+	cvdArgs.snapshotPathInContainer = snapshotInContainer
 	if err := handleCreateOrStartExecution(ccm, cvdArgs); err != nil {
-		return fmt.Errorf("failed to start group %q from snapshot %q: %w", groupName, hostSnapshotPath, err)
+		return fmt.Errorf("failed to start group %q from snapshot %q: %w", groupName, snapshotPath, err)
 	}
 	return nil
 }
@@ -461,6 +533,8 @@ func handleSubcommandsForSingleInstanceGroup(ccm CuttlefishContainerManager, cvd
 		return handleBugreportExecution(ccm, cvdArgs)
 	case "clone":
 		return handleCloneExecution(ccm, cvdArgs)
+	case "export":
+		return handleExportExecution(ccm, cvdArgs)
 	case "snapshot_take":
 		return handleSnapshotTakeExecution(ccm, cvdArgs, hostSnapshotsDir())
 	case "logs":

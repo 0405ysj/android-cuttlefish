@@ -67,8 +67,14 @@ type CuttlefishContainerManager interface {
 	CopyInUserNamespace(ctx context.Context, srcPath string, dstPath string) error
 	// Execute a command on a running container instance
 	ExecOnContainer(ctx context.Context, ctr string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
-	// Create an image from the filesystem of a container instance
-	CommitContainer(ctx context.Context, ctr string, image string) error
+	// Create an image from the filesystem of a container instance, with optional Containerfile changes
+	CommitContainer(ctx context.Context, ctr string, image string, changes ...string) error
+	// Save an image into a tar archive
+	SaveImage(ctx context.Context, image string, path string) error
+	// Load an image from a tar archive and return its name
+	LoadImage(ctx context.Context, path string) (string, error)
+	// Get the labels of an image
+	InspectImageLabels(ctx context.Context, image string) (map[string]string, error)
 	// Stop and remove a container instance
 	StopAndRemoveContainer(ctx context.Context, ctr string) error
 }
@@ -261,14 +267,61 @@ func (m *CuttlefishContainerManagerImpl) ExecOnContainer(ctx context.Context, ct
 	return fmt.Errorf("failed to run command on the container: %w", err)
 }
 
-func (m *CuttlefishContainerManagerImpl) CommitContainer(ctx context.Context, ctr string, image string) error {
-	cmd := exec.CommandContext(ctx, "podman", "commit", "-q", ctr, image)
+func (m *CuttlefishContainerManagerImpl) CommitContainer(ctx context.Context, ctr string, image string, changes ...string) error {
+	args := []string{"commit", "-q"}
+	for _, change := range changes {
+		args = append(args, "--change", change)
+	}
+	args = append(args, ctr, image)
+	cmd := exec.CommandContext(ctx, "podman", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to commit container %q: %s: %w", ctr, stderr.String(), err)
 	}
 	return nil
+}
+
+func (m *CuttlefishContainerManagerImpl) SaveImage(ctx context.Context, image string, path string) error {
+	cmd := exec.CommandContext(ctx, "podman", "save", "-q", "-o", path, image)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to save image %q to %q: %s: %w", image, path, stderr.String(), err)
+	}
+	return nil
+}
+
+func (m *CuttlefishContainerManagerImpl) LoadImage(ctx context.Context, path string) (string, error) {
+	cmd := exec.CommandContext(ctx, "podman", "load", "-q", "-i", path)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to load image from %q: %s: %w", path, stderr.String(), err)
+	}
+	// Output looks like "Loaded image: <name>" or "Loaded image(s): <name>,...".
+	out := strings.TrimSpace(stdout.String())
+	i := strings.LastIndex(out, ": ")
+	if i == -1 {
+		return "", fmt.Errorf("unexpected podman load output: %q", out)
+	}
+	return strings.Split(out[i+2:], ",")[0], nil
+}
+
+func (m *CuttlefishContainerManagerImpl) InspectImageLabels(ctx context.Context, image string) (map[string]string, error) {
+	cmd := exec.CommandContext(ctx, "podman", "image", "inspect", "--format", "{{json .Labels}}", image)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to inspect image %q: %s: %w", image, stderr.String(), err)
+	}
+	labels := make(map[string]string)
+	if err := json.Unmarshal(stdout.Bytes(), &labels); err != nil {
+		return nil, fmt.Errorf("failed to parse labels of image %q: %w", image, err)
+	}
+	return labels, nil
 }
 
 func (m *CuttlefishContainerManagerImpl) StopAndRemoveContainer(ctx context.Context, ctr string) error {

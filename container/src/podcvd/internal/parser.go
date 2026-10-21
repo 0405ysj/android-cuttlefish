@@ -36,6 +36,9 @@ type CvdArgs struct {
 	CommonArgs     *CvdCommonArgs
 	SubCommandArgs []string
 	flagSet        *flag.FlagSet
+
+	// snapshotPathInContainer is set when --snapshot_path is already a container path.
+	snapshotPathInContainer bool
 }
 
 func ParseCvdArgs(allArgs []string) (*CvdArgs, error) {

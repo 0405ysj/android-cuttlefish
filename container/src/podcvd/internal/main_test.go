@@ -84,8 +84,20 @@ func (f *fakeContainerManager) ExecOnContainer(ctx context.Context, ctr string, 
 	return nil
 }
 
-func (f *fakeContainerManager) CommitContainer(ctx context.Context, ctr string, image string) error {
+func (f *fakeContainerManager) CommitContainer(ctx context.Context, ctr string, image string, changes ...string) error {
 	return nil
+}
+
+func (f *fakeContainerManager) SaveImage(ctx context.Context, image string, path string) error {
+	return nil
+}
+
+func (f *fakeContainerManager) LoadImage(ctx context.Context, path string) (string, error) {
+	return "", nil
+}
+
+func (f *fakeContainerManager) InspectImageLabels(ctx context.Context, image string) (map[string]string, error) {
+	return nil, nil
 }
 
 func (f *fakeContainerManager) StopAndRemoveContainer(ctx context.Context, ctr string) error {

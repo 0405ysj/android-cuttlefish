@@ -25,14 +25,16 @@ const (
 )
 
 const (
-	envClientID          = "PODCVD_CLIENT_ID"
-	labelClientID        = "client_id"
-	labelGroupName       = "group_name"
-	labelInnerGroupName  = "inner_group_name"
-	labelCreatedBy       = "created_by"
-	labelAttemptID       = "attempt_id"
-	labelBaseDir         = "base_dir"
-	labelMountSpecs      = "mount_specs"
-	valueCreatedBy       = "podcvd"
-	ToolingContainerName = "tooling"
+	envClientID               = "PODCVD_CLIENT_ID"
+	labelClientID             = "client_id"
+	labelGroupName            = "group_name"
+	labelInnerGroupName       = "inner_group_name"
+	labelCreatedBy            = "created_by"
+	labelAttemptID            = "attempt_id"
+	labelBaseDir              = "base_dir"
+	labelMountSpecs           = "mount_specs"
+	labelExportInnerGroupName = "podcvd_export_inner_group_name"
+	labelExportSnapshotID     = "podcvd_export_snapshot_id"
+	valueCreatedBy            = "podcvd"
+	ToolingContainerName      = "tooling"
 )
